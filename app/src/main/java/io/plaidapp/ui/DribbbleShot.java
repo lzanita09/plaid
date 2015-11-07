@@ -16,9 +16,6 @@
 
 package io.plaidapp.ui;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -549,18 +546,13 @@ public class DribbbleShot extends Activity {
 
     private void expandImageAndFinish() {
         if (imageView.getOffset() != 0f) {
-            Animator expandImage = ObjectAnimator.ofFloat(imageView, ParallaxScrimageView.OFFSET,
-                    0f);
-            expandImage.setDuration(80);
-            expandImage.setInterpolator(AnimationUtils.loadInterpolator(this, android.R
-                    .interpolator.fast_out_slow_in));
-            expandImage.addListener(new AnimatorListenerAdapter() {
+            commentsList.smoothScrollToPosition(0);
+            commentsList.postDelayed(new Runnable() {
                 @Override
-                public void onAnimationEnd(Animator animation) {
+                public void run() {
                     finishAfterTransition();
                 }
-            });
-            expandImage.start();
+            }, 50L);
         } else {
             finishAfterTransition();
         }
