@@ -370,7 +370,7 @@ public class DribbbleShot extends Activity {
             Palette.from(bitmap)
                     .maximumColorCount(3)
                     .clearFilters()
-                    .setRegion(0, 0, bitmap.getWidth() - 1, (int) (twentyFourDip / imageScale))
+                    .setRegion(0, 0, bitmap.getWidth(), (int) (twentyFourDip / imageScale))
                     .generate(new Palette.PaletteAsyncListener() {
                         @Override
                         public void onGenerated(Palette palette) {
