@@ -15,9 +15,8 @@
   limitations under the License.
   -->
 
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <item android:state_pressed="true" android:color="@color/text_primary_light" />
-    <item android:color="@color/primary_dark" />
-
-</selector>
+<!-- unused view, only needed in landscape -->
+<Space
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="0dp" />

@@ -125,6 +125,7 @@ public class DribbbleShot extends Activity {
     private TextView shotTimeAgo;
     private ListView commentsList;
     private DribbbleCommentsAdapter commentsAdapter;
+    private View commentFooter;
     private ImageView userAvatar;
     private EditText enterComment;
     private ImageButton postComment;
@@ -134,6 +135,7 @@ public class DribbbleShot extends Activity {
     private DribbblePrefs dribbblePrefs;
     private DribbbleService dribbbleApi;
     private boolean performingLike;
+    private boolean allowComment;
     private CircleTransform circleTransform;
     private ElasticDragDismissFrameLayout.SystemChromeFader chromeFader;
 
@@ -145,6 +147,7 @@ public class DribbbleShot extends Activity {
         setupDribbble();
         setExitSharedElementCallback(fabLoginSharedElementCallback);
         getWindow().getSharedElementReturnTransition().addListener(shotReturnHomeListener);
+        circleTransform = new CircleTransform(this);
         Resources res = getResources();
 
         ButterKnife.bind(this);
@@ -162,13 +165,7 @@ public class DribbbleShot extends Activity {
         shotTimeAgo = (TextView) shotDescription.findViewById(R.id.shot_time_ago);
         commentsList = (ListView) findViewById(R.id.dribbble_comments);
         commentsList.addHeaderView(shotDescription);
-        View enterCommentView = getLayoutInflater().inflate(R.layout.dribbble_enter_comment,
-                commentsList, false);
-        userAvatar = (ForegroundImageView) enterCommentView.findViewById(R.id.avatar);
-        enterComment = (EditText) enterCommentView.findViewById(R.id.comment);
-        postComment = (ImageButton) enterCommentView.findViewById(R.id.post_comment);
-        enterComment.setOnFocusChangeListener(enterCommentFocus);
-        commentsList.addFooterView(enterCommentView);
+        setupCommenting();
         commentsList.setOnScrollListener(scrollListener);
         back.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -183,7 +180,6 @@ public class DribbbleShot extends Activity {
                 expandImageAndFinish();
             }
         };
-        circleTransform = new CircleTransform(this);
 
         // load the main image
         Glide.with(this)
@@ -264,14 +260,6 @@ public class DribbbleShot extends Activity {
         } else {
             commentsList.setAdapter(getNoCommentsAdapter());
         }
-
-        if (dribbblePrefs.isLoggedIn() && !TextUtils.isEmpty(dribbblePrefs.getUserAvatar())) {
-            Glide.with(this)
-                    .load(dribbblePrefs.getUserAvatar())
-                    .transform(circleTransform)
-                    .placeholder(R.drawable.ic_player)
-                    .into(userAvatar);
-        }
     }
 
     @Override
@@ -299,8 +287,13 @@ public class DribbbleShot extends Activity {
                     // the user was trying to do when forced to login
                     fab.setChecked(true);
                     doLike();
+                    setupCommenting();
                 }
                 break;
+            case RC_LOGIN_COMMENT:
+                if (resultCode == RESULT_OK) {
+                    setupCommenting();
+                }
         }
     }
 
@@ -318,6 +311,35 @@ public class DribbbleShot extends Activity {
     @Override @TargetApi(Build.VERSION_CODES.M)
     public void onProvideAssistContent(AssistContent outContent) {
         outContent.setWebUri(Uri.parse(shot.url));
+    }
+
+    private void setupCommenting() {
+        allowComment = !dribbblePrefs.isLoggedIn()
+                || (dribbblePrefs.isLoggedIn() && dribbblePrefs.userCanPost());
+        if (allowComment && commentFooter == null) {
+            commentFooter = getLayoutInflater().inflate(R.layout.dribbble_enter_comment,
+                    commentsList, false);
+            userAvatar = (ForegroundImageView) commentFooter.findViewById(R.id.avatar);
+            enterComment = (EditText) commentFooter.findViewById(R.id.comment);
+            postComment = (ImageButton) commentFooter.findViewById(R.id.post_comment);
+            enterComment.setOnFocusChangeListener(enterCommentFocus);
+            commentsList.addFooterView(commentFooter);
+        } else if (!allowComment && commentFooter != null) {
+            commentsList.removeFooterView(commentFooter);
+            commentFooter = null;
+            Toast.makeText(getApplicationContext(),
+                    R.string.prospects_cant_post, Toast.LENGTH_SHORT).show();
+        }
+
+        if (allowComment
+                && dribbblePrefs.isLoggedIn()
+                && !TextUtils.isEmpty(dribbblePrefs.getUserAvatar())) {
+            Glide.with(this)
+                    .load(dribbblePrefs.getUserAvatar())
+                    .transform(circleTransform)
+                    .placeholder(R.drawable.ic_player)
+                    .into(userAvatar);
+        }
     }
 
     private View.OnClickListener shotClick = new View.OnClickListener() {
@@ -406,16 +428,15 @@ public class DribbbleShot extends Activity {
                     .generate(new Palette.PaletteAsyncListener() {
                         @Override
                         public void onGenerated(Palette palette) {
-                            Palette.Swatch vibrant = palette.getVibrantSwatch();
-                            if (vibrant != null) {
-                                // color the ripple on the image spacer (default is grey)
-                                shotSpacer.setBackground(ViewUtils.createMaskedRipple(vibrant
-                                        .getRgb(), 0.25f));
-                                // slightly more opaque ripple on the pinned image to compensate
-                                // for the scrim
-                                imageView.setForeground(ViewUtils.createRipple(vibrant.getRgb(),
-                                        0.3f));
-                            }
+                            // color the ripple on the image spacer (default is grey)
+                            shotSpacer.setBackground(ViewUtils.createRipple(palette, 0.25f, 0.5f,
+                                    ContextCompat.getColor(DribbbleShot.this, R.color.mid_grey),
+                                    true));
+                            // slightly more opaque ripple on the pinned image to compensate
+                            // for the scrim
+                            imageView.setForeground(ViewUtils.createRipple(palette, 0.3f, 0.6f,
+                                    ContextCompat.getColor(DribbbleShot.this, R.color.mid_grey),
+                                    true));
                         }
                     });
 
@@ -842,7 +863,8 @@ public class DribbbleShot extends Activity {
                 }
             });
 
-            reply.setVisibility(position == expandedCommentPosition ? View.VISIBLE : View.GONE);
+            reply.setVisibility((position == expandedCommentPosition && allowComment) ?
+                    View.VISIBLE : View.GONE);
             reply.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
