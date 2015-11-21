@@ -38,7 +38,7 @@
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowBackground">@color/background_dark</item>
-        <item name="android:windowEnterTransition">@transition/main_enter</item>
+        <item name="android:windowEnterTransition">@transition/home_enter</item>
     </style>
 
     <style name="Plaid.Translucent">
@@ -183,7 +183,7 @@
 
     <style name="TextAppearance.TileSecondary" parent="@android:style/TextAppearance.Material.Body2">
         <item name="android:letterSpacing">0.01</item>
-        <item name="android:textColor">@color/text_secondary_light</item>
+        <item name="android:textColor">?android:textColorSecondary</item>
     </style>
 
     <style name="Widget.Plaid.TileSecondary">

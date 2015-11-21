@@ -16,6 +16,10 @@
 
 package io.plaidapp.ui;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -38,6 +42,7 @@ import android.support.v4.content.ContextCompat;
 import android.support.v7.graphics.Palette;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
+import android.transition.AutoTransition;
 import android.transition.Transition;
 import android.transition.TransitionManager;
 import android.util.Log;
@@ -93,6 +98,7 @@ import io.plaidapp.ui.widget.ParallaxScrimageView;
 import io.plaidapp.util.AnimUtils;
 import io.plaidapp.util.ColorUtils;
 import io.plaidapp.util.HtmlUtils;
+import io.plaidapp.util.ImeUtils;
 import io.plaidapp.util.ViewUtils;
 import io.plaidapp.util.customtabs.CustomTabActivityHelper;
 import io.plaidapp.util.glide.CircleTransform;
@@ -140,7 +146,7 @@ public class DribbbleShot extends Activity {
     private ElasticDragDismissFrameLayout.SystemChromeFader chromeFader;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_dribbble_shot);
         shot = getIntent().getParcelableExtra(EXTRA_SHOT);
@@ -198,7 +204,7 @@ public class DribbbleShot extends Activity {
             public boolean onPreDraw() {
                 imageView.getViewTreeObserver().removeOnPreDrawListener(this);
                 calculateFabPosition();
-                enterAnimation();
+                enterAnimation(savedInstanceState != null);
                 startPostponedEnterTransition();
                 return true;
             }
@@ -371,6 +377,7 @@ public class DribbbleShot extends Activity {
                     .maximumColorCount(3)
                     .clearFilters()
                     .setRegion(0, 0, bitmap.getWidth() - 1, (int) (twentyFourDip / imageScale))
+                    // - 1 to work around https://code.google.com/p/android/issues/detail?id=191013
                     .generate(new Palette.PaletteAsyncListener() {
                         @Override
                         public void onGenerated(Palette palette) {
@@ -607,7 +614,7 @@ public class DribbbleShot extends Activity {
      * are within the ListView so do it manually.  Also handle the FAB tanslation here so that it
      * plays nicely with #calculateFabPosition
      */
-    private void enterAnimation() {
+    private void enterAnimation(boolean isOrientationChange) {
         Interpolator interp = AnimationUtils.loadInterpolator(this, android.R.interpolator
                 .fast_out_slow_in);
         int offset = title.getHeight();
@@ -636,6 +643,20 @@ public class DribbbleShot extends Activity {
                 .setDuration(600)
                 .setInterpolator(interp)
                 .start();
+
+        if (isOrientationChange) {
+            // we rely on the window enter content transition to show the fab. This isn't run on
+            // orientation changes so manually show it.
+            Animator showFab = ObjectAnimator.ofPropertyValuesHolder(fab,
+                    PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f),
+                    PropertyValuesHolder.ofFloat(View.SCALE_X, 0f, 1f),
+                    PropertyValuesHolder.ofFloat(View.SCALE_Y, 0f, 1f));
+            showFab.setStartDelay(300L);
+            showFab.setDuration(300L);
+            showFab.setInterpolator(AnimationUtils.loadInterpolator(this,
+                    android.R.interpolator.linear_out_slow_in));
+            showFab.start();
+        }
     }
 
     private void viewEnterAnimation(View view, float offset, Interpolator interp) {
@@ -733,7 +754,7 @@ public class DribbbleShot extends Activity {
     }
 
     private ListAdapter getNoCommentsAdapter() {
-        String[] noComments = {getString(R.string.no_comments)};
+        String[] noComments = { getString(R.string.no_comments) };
         return new ArrayAdapter<>(this, R.layout.dribbble_no_comments, noComments);
     }
 
@@ -765,11 +786,16 @@ public class DribbbleShot extends Activity {
     protected class DribbbleCommentsAdapter extends ArrayAdapter<Comment> {
 
         private final LayoutInflater inflater;
+        private final Transition change;
         private int expandedCommentPosition = ListView.INVALID_POSITION;
 
         public DribbbleCommentsAdapter(Context context, int resource, List<Comment> comments) {
             super(context, resource, comments);
-            inflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            inflater = LayoutInflater.from(context);
+            change = new AutoTransition();
+            change.setDuration(200L);
+            change.setInterpolator(AnimationUtils.loadInterpolator(context,
+                    android.R.interpolator.fast_out_slow_in));
         }
 
         @Override
@@ -799,8 +825,8 @@ public class DribbbleShot extends Activity {
             final TextView timeAgo = (TextView) view.getTag(R.id.comment_time_ago);
             final TextView commentBody = (TextView) view.getTag(R.id.comment_text);
             final ImageButton reply = (ImageButton) view.getTag(R.id.comment_reply);
-            final CheckableImageButton likeHeart = (CheckableImageButton) view.getTag(R.id
-                    .comment_like);
+            final CheckableImageButton likeHeart =
+                    (CheckableImageButton) view.getTag(R.id.comment_like);
             final TextView likesCount = (TextView) view.getTag(R.id.comment_likes_count);
 
             Glide.with(DribbbleShot.this)
@@ -811,8 +837,8 @@ public class DribbbleShot extends Activity {
             avatar.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    DribbbleShot.this.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse
-                            (comment.user.html_url)));
+                    DribbbleShot.this.startActivity(new Intent(Intent.ACTION_VIEW,
+                            Uri.parse(comment.user.html_url)));
                 }
             });
             author.setText(comment.user.name);
@@ -827,8 +853,8 @@ public class DribbbleShot extends Activity {
             view.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    boolean isExpanded = reply.getVisibility() == View.VISIBLE;
-                    TransitionManager.beginDelayedTransition((ViewGroup) view);
+                    final boolean isExpanded = reply.getVisibility() == View.VISIBLE;
+                    TransitionManager.beginDelayedTransition(commentsList, change);
                     view.setActivated(!isExpanded);
                     if (!isExpanded) { // do expand
                         expandedCommentPosition = position;
@@ -836,8 +862,8 @@ public class DribbbleShot extends Activity {
                         likeHeart.setVisibility(View.VISIBLE);
                         likesCount.setVisibility(View.VISIBLE);
                         if (comment.liked == null) {
-                            dribbbleApi.likedComment(shot.id, comment.id, new retrofit
-                                    .Callback<Like>() {
+                            dribbbleApi.likedComment(shot.id, comment.id,
+                                    new retrofit.Callback<Like>() {
                                 @Override
                                 public void success(Like like, Response response) {
                                     comment.liked = true;
@@ -853,6 +879,11 @@ public class DribbbleShot extends Activity {
                                 }
                             });
                         }
+                        if (enterComment != null && enterComment.hasFocus()) {
+                            enterComment.clearFocus();
+                            ImeUtils.hideIme(enterComment);
+                        }
+                        view.requestFocus();
                     } else { // do collapse
                         expandedCommentPosition = ListView.INVALID_POSITION;
                         reply.setVisibility(View.GONE);
@@ -891,48 +922,44 @@ public class DribbbleShot extends Activity {
                                 comment.likes_count++;
                                 likesCount.setText(String.valueOf(comment.likes_count));
                                 notifyDataSetChanged();
-                                dribbbleApi.likeComment(shot.id, comment.id, "", new retrofit
-                                        .Callback<Like>() {
+                                dribbbleApi.likeComment(shot.id, comment.id, "",
+                                        new retrofit.Callback<Like>() {
                                     @Override
-                                    public void success(Like like, Response response) {
-                                    }
+                                    public void success(Like like, Response response) { }
 
                                     @Override
-                                    public void failure(RetrofitError error) {
-                                    }
+                                    public void failure(RetrofitError error) { }
                                 });
                             } else {
                                 comment.liked = false;
                                 comment.likes_count--;
                                 likesCount.setText(String.valueOf(comment.likes_count));
                                 notifyDataSetChanged();
-                                dribbbleApi.unlikeComment(shot.id, comment.id, new retrofit
-                                        .Callback<Void>() {
+                                dribbbleApi.unlikeComment(shot.id, comment.id,
+                                        new retrofit.Callback<Void>() {
                                     @Override
-                                    public void success(Void voyd, Response response) {
-                                    }
+                                    public void success(Void voyd, Response response) { }
 
                                     @Override
-                                    public void failure(RetrofitError error) {
-                                    }
+                                    public void failure(RetrofitError error) { }
                                 });
                             }
                         } else {
                             likeHeart.setChecked(false);
-                            startActivityForResult(new Intent(DribbbleShot.this, DribbbleLogin
-                                    .class), RC_LOGIN_LIKE);
+                            startActivityForResult(new Intent(DribbbleShot.this,
+                                    DribbbleLogin.class), RC_LOGIN_LIKE);
                         }
                     }
                 });
             }
-            likesCount.setVisibility(position == expandedCommentPosition ? View.VISIBLE : View
-                    .GONE);
+            likesCount.setVisibility(
+                    position == expandedCommentPosition ? View.VISIBLE : View.GONE);
             likesCount.setText(String.valueOf(comment.likes_count));
             likesCount.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    dribbbleApi.getCommentLikes(shot.id, comment.id, new retrofit
-                            .Callback<List<Like>>() {
+                    dribbbleApi.getCommentLikes(shot.id, comment.id,
+                            new retrofit.Callback<List<Like>>() {
                         @Override
                         public void success(List<Like> likes, Response response) {
                             // TODO something better than this.
@@ -966,6 +993,7 @@ public class DribbbleShot extends Activity {
         public long getItemId(int position) {
             return getItem(position).id;
         }
+
     }
 
 }

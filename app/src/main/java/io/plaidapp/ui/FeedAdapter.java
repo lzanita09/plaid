@@ -25,13 +25,18 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Intent;
+import android.content.res.TypedArray;
+import android.graphics.Color;
 import android.graphics.ColorMatrixColorFilter;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.support.annotation.Nullable;
 import android.support.customtabs.CustomTabsIntent;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.widget.RecyclerView;
 import android.transition.ArcMotion;
+import android.transition.Transition;
+import android.transition.TransitionInflater;
 import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -63,6 +68,7 @@ import io.plaidapp.data.api.dribbble.model.Shot;
 import io.plaidapp.data.api.producthunt.model.Post;
 import io.plaidapp.data.pocket.PocketUtils;
 import io.plaidapp.ui.widget.BadgedFourThreeImageView;
+import io.plaidapp.util.AnimUtils;
 import io.plaidapp.util.ObservableColorMatrix;
 import io.plaidapp.util.ViewUtils;
 import io.plaidapp.util.customtabs.CustomTabActivityHelper;
@@ -77,6 +83,7 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int TYPE_DRIBBBLE_SHOT = 1;
     private static final int TYPE_PRODUCT_HUNT_POST = 2;
     private static final int TYPE_LOADING_MORE = -1;
+    private static final int MAX_IMAGE_CACHE_WIDTH = 1440;
     public static final float DUPE_WEIGHT_BOOST = 0.4f;
 
     // we need to hold on to an activity ref for the shared element transitions :/
@@ -86,6 +93,8 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final boolean pocketIsInstalled;
     private @Nullable DataLoadingSubject dataLoading;
     private final int columns;
+    private final ColorDrawable[] shotLoadingPlaceholders;
+    private int shotWidth = 0;
 
     private List<PlaidItem> items;
 
@@ -101,6 +110,13 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         comparator = new PlaidItemComparator();
         items = new ArrayList<>();
         setHasStableIds(true);
+        TypedArray placeholderColors = hostActivity.getResources()
+                .obtainTypedArray(R.array.loading_placeholders);
+        shotLoadingPlaceholders = new ColorDrawable[placeholderColors.length()];
+        for (int i = 0; i < placeholderColors.length(); i++) {
+            shotLoadingPlaceholders[i] = new ColorDrawable(
+                    placeholderColors.getColor(i, Color.DKGRAY));
+        }
     }
 
     @Override
@@ -111,6 +127,7 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         layoutInflater.inflate(R.layout.designer_news_story_item, parent, false),
                         pocketIsInstalled);
             case TYPE_DRIBBBLE_SHOT:
+                ensureShotImageWidth(parent);
                 return new DribbbleShotHolder(
                         layoutInflater.inflate(R.layout.dribbble_shot_item, parent, false));
             case TYPE_PRODUCT_HUNT_POST:
@@ -131,7 +148,7 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (item instanceof Story) {
                 bindDesignerNewsStory((Story) getItem(position), (DesignerNewsStoryHolder) holder);
             } else if (item instanceof Shot) {
-                bindDribbbleShotView((Shot) item, (DribbbleShotHolder) holder);
+                bindDribbbleShotView((Shot) item, (DribbbleShotHolder) holder, position);
             } else if (item instanceof Post) {
                 bindProductHuntPostView((Post) item, (ProductHuntStoryHolder) holder);
             }
@@ -159,6 +176,7 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 final Intent intent = new Intent();
                 intent.setClass(host, DesignerNewsStory.class);
                 intent.putExtra(DesignerNewsStory.EXTRA_STORY, story);
+                setGridItemContentTransitions(holder.itemView);
                 final ActivityOptions options =
                         ActivityOptions.makeSceneTransitionAnimation(host,
                                 Pair.create(holder.itemView,
@@ -260,7 +278,9 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    private void bindDribbbleShotView(final Shot shot, final DribbbleShotHolder holder) {
+    private void bindDribbbleShotView(final Shot shot,
+                                      final DribbbleShotHolder holder,
+                                      final int position) {
         final BadgedFourThreeImageView iv = (BadgedFourThreeImageView) holder.itemView;
         Glide.with(host)
                 .load(shot.images.best())
@@ -310,10 +330,10 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         return false;
                     }
                 })
-                // needed to prevent seeing through view as it fades in
-                .placeholder(R.color.background_dark)
-                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .into(new DribbbleTarget(iv, false));
+                .placeholder(shotLoadingPlaceholders[position % shotLoadingPlaceholders.length])
+                .diskCacheStrategy(DiskCacheStrategy.SOURCE)
+                .fitCenter()
+                .into(new DribbbleTarget(iv, false, shotWidth));
 
         iv.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -324,6 +344,7 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 Intent intent = new Intent();
                 intent.setClass(host, DribbbleShot.class);
                 intent.putExtra(DribbbleShot.EXTRA_SHOT, shot);
+                setGridItemContentTransitions(holder.itemView);
                 ActivityOptions options =
                         ActivityOptions.makeSceneTransitionAnimation(host,
                                 Pair.create(view, host.getString(R.string.transition_shot)),
@@ -458,7 +479,9 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             int rowPosition = (pos + extraSpannedSpaces) % columns;
             if (rowPosition != 0) {
                 int swapWith = pos + (columns - rowPosition);
-                Collections.swap(items, pos, swapWith);
+                if (swapWith < items.size()) {
+                    Collections.swap(items, pos, swapWith);
+                }
             }
         }
     }
@@ -533,6 +556,40 @@ public class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public int getItemCount() {
         // include loading footer
         return getDataItemCount() + 1;
+    }
+
+    /**
+     * We override the image size as we want to cache images at device width for a smooth
+     * transition from the home grid to the detail screen
+     */
+    private void ensureShotImageWidth(View view) {
+        if (shotWidth == 0) {
+            // constrain to a max width to reduce OutOfMemory errors!
+            shotWidth = Math.min(view.getRootView().getWidth(), MAX_IMAGE_CACHE_WIDTH);
+        }
+    }
+
+    /**
+     * The shared element transition to dribbble shots & dn stories can intersect with the FAB.
+     * This can cause a strange layers-passing-through-each-other effect, especially on return.
+     * In this situation, hide the FAB on exit and re-show it on return.
+     */
+    private void setGridItemContentTransitions(View gridItem) {
+        if (!ViewUtils.viewsIntersect(gridItem, host.findViewById(R.id.fab))) return;
+
+        final TransitionInflater ti = TransitionInflater.from(host);
+        host.getWindow().setExitTransition(
+                ti.inflateTransition(R.transition.home_content_item_exit));
+        final Transition reenter = ti.inflateTransition(R.transition.home_content_item_reenter);
+        // we only want this content transition in certain cases so clear it out after it's done.
+        reenter.addListener(new AnimUtils.TransitionListenerAdapter() {
+            @Override
+            public void onTransitionEnd(Transition transition) {
+                host.getWindow().setExitTransition(null);
+                host.getWindow().setReenterTransition(null);
+            }
+        });
+        host.getWindow().setReenterTransition(reenter);
     }
 
     public int getDataItemCount() {
