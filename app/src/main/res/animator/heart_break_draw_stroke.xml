@@ -15,22 +15,23 @@
   limitations under the License.
   -->
 
-<layer-list
-    xmlns:android="http://schemas.android.com/apk/res/android">
+<set
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="sequentially">
 
-    <!-- blue background -->
-    <item>
-        <color android:color="@color/designer_news"/>
-    </item>
+    <!-- first reset state -->
+    <objectAnimator
+        android:propertyName="trimPathEnd"
+        android:valueFrom="0"
+        android:valueTo="0"
+        android:duration="0" />
 
-    <!-- bottom divider -->
-    <item android:height="@dimen/divider_height" android:gravity="bottom">
-        <color android:color="@color/divider"/>
-    </item>
+    <objectAnimator
+        android:propertyName="trimPathEnd"
+        android:valueFrom="0"
+        android:valueTo="1"
+        android:startOffset="400"
+        android:duration="300"
+        android:interpolator="@android:interpolator/fast_out_slow_in" />
 
-    <!-- right divider -->
-    <item android:width="@dimen/divider_height" android:gravity="end">
-        <color android:color="@color/divider"/>
-    </item>
-
-</layer-list>
+</set>
